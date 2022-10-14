@@ -1220,7 +1220,7 @@ class SeparableConv2D(Conv2D):
             padding=self.padding,
             dilation_rate=self.dilation_rate)
 
-        if self.bias:
+        if self.bias is not None:
             outputs = K.bias_add(
                 outputs,
                 self.bias,
