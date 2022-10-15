@@ -938,9 +938,9 @@ class ConvLSTM2D(ConvRecurrent2D):
     
     
 class ConvSTAR2D(ConvRecurrent2D):
-    """Convolutional LSTM.
+    """Convolutional GRU.
 
-    It is similar to an LSTM layer, but the input transformations
+    It is similar to an GRU layer, but the input transformations
     and recurrent transformations are both convolutional.
 
     # Arguments
@@ -984,10 +984,6 @@ class ConvSTAR2D(ConvRecurrent2D):
             (see [initializers](../initializers.md)).
         bias_initializer: Initializer for the bias vector
             (see [initializers](../initializers.md)).
-        unit_forget_bias: Boolean.
-            If True, add 1 to the bias of the forget gate at initialization.
-            Use in combination with `bias_initializer="zeros"`.
-            This is recommended in [Jozefowicz et al.](http://www.jmlr.org/proceedings/papers/v37/jozefowicz15.pdf)
         kernel_regularizer: Regularizer function applied to
             the `kernel` weights matrix
             (see [regularizer](../regularizers.md)).
@@ -1057,7 +1053,7 @@ class ConvSTAR2D(ConvRecurrent2D):
         cells output
     """
 
-    @interfaces.legacy_convlstm2d_support
+    @interfaces.legacy_convgru2d_support
     def __init__(self, filters,
                  kernel_size,
                  strides=(1, 1),
@@ -1070,7 +1066,6 @@ class ConvSTAR2D(ConvRecurrent2D):
                  kernel_initializer='glorot_uniform',
                  recurrent_initializer='orthogonal',
                  bias_initializer='zeros',
-                 unit_forget_bias=True,
                  kernel_regularizer=None,
                  recurrent_regularizer=None,
                  bias_regularizer=None,
@@ -1085,15 +1080,15 @@ class ConvSTAR2D(ConvRecurrent2D):
                  recurrent_dropout=0.,
                  **kwargs):
         super(ConvSTAR2D, self).__init__(filters,
-                                         kernel_size,
-                                         strides=strides,
-                                         padding=padding,
-                                         data_format=data_format,
-                                         dilation_rate=dilation_rate,
-                                         return_sequences=return_sequences,
-                                         go_backwards=go_backwards,
-                                         stateful=stateful,
-                                         **kwargs)
+                                        kernel_size,
+                                        strides=strides,
+                                        padding=padding,
+                                        data_format=data_format,
+                                        dilation_rate=dilation_rate,
+                                        return_sequences=return_sequences,
+                                        go_backwards=go_backwards,
+                                        stateful=stateful,
+                                        **kwargs)
         self.activation = activations.get(activation)
         self.recurrent_activation = activations.get(recurrent_activation)
         self.use_bias = use_bias
@@ -1101,7 +1096,6 @@ class ConvSTAR2D(ConvRecurrent2D):
         self.kernel_initializer = initializers.get(kernel_initializer)
         self.recurrent_initializer = initializers.get(recurrent_initializer)
         self.bias_initializer = initializers.get(bias_initializer)
-        self.unit_forget_bias = unit_forget_bias
 
         self.kernel_regularizer = regularizers.get(kernel_regularizer)
         self.recurrent_regularizer = regularizers.get(recurrent_regularizer)
@@ -1114,7 +1108,7 @@ class ConvSTAR2D(ConvRecurrent2D):
 
         self.dropout = min(1., max(0., dropout))
         self.recurrent_dropout = min(1., max(0., recurrent_dropout))
-        self.state_spec = [InputSpec(ndim=4), InputSpec(ndim=4)]
+        self.state_spec = [InputSpec(ndim=4)]
 
     def build(self, input_shape):
         if isinstance(input_shape, list):
@@ -1124,8 +1118,8 @@ class ConvSTAR2D(ConvRecurrent2D):
         if self.stateful:
             self.reset_states()
         else:
-            # initial states: 2 all-zero tensor of shape (filters)
-            self.states = [None, None]
+            # initial states: 1 all-zero tensor of shape (filters)
+            self.states = [None]
 
         if self.data_format == 'channels_first':
             channel_axis = 2
@@ -1135,13 +1129,13 @@ class ConvSTAR2D(ConvRecurrent2D):
             raise ValueError('The channel dimension of the inputs '
                              'should be defined. Found `None`.')
         input_dim = input_shape[channel_axis]
-        state_shape = [None] * 4
+        state_shape = [None] * 3
         state_shape[channel_axis] = input_dim
         state_shape = tuple(state_shape)
         self.state_spec = [InputSpec(shape=state_shape), InputSpec(shape=state_shape)]
-        kernel_shape = self.kernel_size + (input_dim, self.filters * 4)
+        kernel_shape = self.kernel_size + (input_dim, self.filters * 3)
         self.kernel_shape = kernel_shape
-        recurrent_kernel_shape = self.kernel_size + (self.filters, self.filters * 4)
+        recurrent_kernel_shape = self.kernel_size + (self.filters, self.filters * 3)
 
         self.kernel = self.add_weight(shape=kernel_shape,
                                       initializer=self.kernel_initializer,
@@ -1155,37 +1149,29 @@ class ConvSTAR2D(ConvRecurrent2D):
             regularizer=self.recurrent_regularizer,
             constraint=self.recurrent_constraint)
         if self.use_bias:
-            self.bias = self.add_weight(shape=(self.filters * 4,),
+            self.bias = self.add_weight(shape=(self.filters * 3,),
                                         initializer=self.bias_initializer,
                                         name='bias',
                                         regularizer=self.bias_regularizer,
                                         constraint=self.bias_constraint)
-            if self.unit_forget_bias:
-                bias_value = np.zeros((self.filters * 4,))
-                bias_value[self.filters: self.filters * 2] = 1.
-                K.set_value(self.bias, bias_value)
         else:
             self.bias = None
 
-        # self.kernel_i = self.kernel[:, :, :, :self.filters]
-        # self.recurrent_kernel_i = self.recurrent_kernel[:, :, :, :self.filters]
+        self.kernel_z = self.kernel[:, :, :, :self.filters]
+        self.recurrent_kernel_z = self.recurrent_kernel[:, :, :, :self.filters]
         self.kernel_f = self.kernel[:, :, :, self.filters: self.filters * 2]
         self.recurrent_kernel_f = self.recurrent_kernel[:, :, :, self.filters: self.filters * 2]
-        self.kernel_c = self.kernel[:, :, :, self.filters * 2: self.filters * 3]
-        self.recurrent_kernel_c = self.recurrent_kernel[:, :, :, self.filters * 2: self.filters * 3]
-        # self.kernel_o = self.kernel[:, :, :, self.filters * 3:]
-        # self.recurrent_kernel_o = self.recurrent_kernel[:, :, :, self.filters * 3:]
+
 
         if self.use_bias:
-            #self.bias_i = self.bias[:self.filters]
+            self.bias_z = self.bias[:self.filters]
             self.bias_f = self.bias[self.filters: self.filters * 2]
-            self.bias_c = self.bias[self.filters * 2: self.filters * 3]
-            #self.bias_o = self.bias[self.filters * 3:]
+            #self.bias_h = self.bias[self.filters * 2:]
+
         else:
-            self.bias_i = None
-            self.bias_f = None
-            self.bias_c = None
-            self.bias_o = None
+            self.bias_z = None
+            self.bias_r = None
+            #self.bias_h = None
         self.built = True
 
     def get_initial_state(self, inputs):
@@ -1199,7 +1185,7 @@ class ConvSTAR2D(ConvRecurrent2D):
                                         K.zeros(tuple(shape)),
                                         padding=self.padding)
 
-        initial_states = [initial_state for _ in range(2)]
+        initial_states = [initial_state]
         return initial_states
 
     def reset_states(self):
@@ -1226,11 +1212,8 @@ class ConvSTAR2D(ConvRecurrent2D):
         if hasattr(self, 'states'):
             K.set_value(self.states[0],
                         np.zeros(output_shape))
-            K.set_value(self.states[1],
-                        np.zeros(output_shape))
         else:
-            self.states = [K.zeros(output_shape),
-                           K.zeros(output_shape)]
+            self.states = [K.zeros(output_shape)]
 
     def get_constants(self, inputs, training=None):
         constants = []
@@ -1244,10 +1227,10 @@ class ConvSTAR2D(ConvRecurrent2D):
 
             dp_mask = [K.in_train_phase(dropped_inputs,
                                         ones,
-                                        training=training) for _ in range(4)]
+                                        training=training) for _ in range(3)]
             constants.append(dp_mask)
         else:
-            constants.append([K.cast_to_floatx(1.) for _ in range(4)])
+            constants.append([K.cast_to_floatx(1.) for _ in range(3)])
 
         if 0 < self.recurrent_dropout < 1:
             shape = list(self.kernel_shape)
@@ -1262,10 +1245,10 @@ class ConvSTAR2D(ConvRecurrent2D):
                 return K.dropout(ones, self.recurrent_dropout)
             rec_dp_mask = [K.in_train_phase(dropped_inputs,
                                             ones,
-                                            training=training) for _ in range(4)]
+                                            training=training) for _ in range(3)]
             constants.append(rec_dp_mask)
         else:
-            constants.append([K.cast_to_floatx(1.) for _ in range(4)])
+            constants.append([K.cast_to_floatx(1.) for _ in range(3)])
         return constants
 
     def input_conv(self, x, w, b=None, padding='valid'):
@@ -1285,36 +1268,24 @@ class ConvSTAR2D(ConvRecurrent2D):
         return conv_out
 
     def step(self, inputs, states):
-        assert len(states) == 4
+        assert len(states) == 3
         h_tm1 = states[0]
-        #c_tm1 = states[1]
-        dp_mask = states[2]
-        rec_dp_mask = states[3]
+        dp_mask = states[1]
+        rec_dp_mask = states[2]
 
-        #x_i = self.input_conv(inputs * dp_mask[0], self.kernel_i, self.bias_i,
-                              #padding=self.padding)
+        x_z = self.input_conv(inputs * dp_mask[0], self.kernel_z, self.bias_z,
+                              padding=self.padding)
         x_f = self.input_conv(inputs * dp_mask[1], self.kernel_f, self.bias_f,
                               padding=self.padding)
-        x_z = self.input_conv(inputs * dp_mask[2], self.kernel_c, self.bias_c,
-                              padding=self.padding)
-        #x_o = self.input_conv(inputs * dp_mask[3], self.kernel_o, self.bias_o,
-                              #padding=self.padding)
-        # h_i = self.recurrent_conv(h_tm1 * rec_dp_mask[0],
-        #                           self.recurrent_kernel_i)
-        h_f = self.recurrent_conv(h_tm1 * rec_dp_mask[1],
+        
+        h_f = self.recurrent_conv(h_tm1 * rec_dp_mask[0],
                                   self.recurrent_kernel_f)
-        # h_z = self.recurrent_conv(h_tm1 * rec_dp_mask[1],
-        #                           self.recurrent_kernel_z)
-        # h_o = self.recurrent_conv(h_tm1 * rec_dp_mask[3],
-        #                           self.recurrent_kernel_o)
-
-        #i = self.recurrent_activation(x_i + h_i)
-        f = self.recurrent_activation(x_f + h_f)
         z = self.activation(x_z)
-        #o = self.recurrent_activation(x_o + h_o)
+        f = self.recurrent_activation(x_f + h_f)
+
         h = (1.0 - f) * h_tm1 + f * z
         h = self.activation(h)
-        return h, [h,z]
+        return h, [h]
 
     def get_config(self):
         config = {'activation': activations.serialize(self.activation),
@@ -1323,7 +1294,6 @@ class ConvSTAR2D(ConvRecurrent2D):
                   'kernel_initializer': initializers.serialize(self.kernel_initializer),
                   'recurrent_initializer': initializers.serialize(self.recurrent_initializer),
                   'bias_initializer': initializers.serialize(self.bias_initializer),
-                  'unit_forget_bias': self.unit_forget_bias,
                   'kernel_regularizer': regularizers.serialize(self.kernel_regularizer),
                   'recurrent_regularizer': regularizers.serialize(self.recurrent_regularizer),
                   'bias_regularizer': regularizers.serialize(self.bias_regularizer),
