@@ -1278,7 +1278,7 @@ class ConvSTAR2D(ConvRecurrent2D):
         x_f = self.input_conv(inputs * dp_mask[1], self.kernel_f, self.bias_f,
                               padding=self.padding)
         
-        h_f = self.recurrent_conv(h_tm1 * rec_dp_mask[0],
+        h_f = self.recurrent_conv(h_tm1 * rec_dp_mask[1],
                                   self.recurrent_kernel_f)
         z = self.activation(x_z)
         f = self.recurrent_activation(x_f + h_f)
