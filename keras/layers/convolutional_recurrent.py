@@ -1133,9 +1133,9 @@ class ConvSTAR2D(ConvRecurrent2D):
         state_shape[channel_axis] = input_dim
         state_shape = tuple(state_shape)
         self.state_spec = [InputSpec(shape=state_shape), InputSpec(shape=state_shape)]
-        kernel_shape = self.kernel_size + (input_dim, self.filters * 3)
+        kernel_shape = self.kernel_size + (input_dim, self.filters)
         self.kernel_shape = kernel_shape
-        recurrent_kernel_shape = self.kernel_size + (self.filters, self.filters * 3)
+        recurrent_kernel_shape = self.kernel_size + (self.filters, self.filters)
 
         self.kernel = self.add_weight(shape=kernel_shape,
                                       initializer=self.kernel_initializer,
@@ -1149,7 +1149,7 @@ class ConvSTAR2D(ConvRecurrent2D):
             regularizer=self.recurrent_regularizer,
             constraint=self.recurrent_constraint)
         if self.use_bias:
-            self.bias = self.add_weight(shape=(self.filters * 3,),
+            self.bias = self.add_weight(shape=(self.filters,),
                                         initializer=self.bias_initializer,
                                         name='bias',
                                         regularizer=self.bias_regularizer,
@@ -1157,20 +1157,20 @@ class ConvSTAR2D(ConvRecurrent2D):
         else:
             self.bias = None
 
-        self.kernel_z = self.kernel[:, :, :, :self.filters]
-        self.recurrent_kernel_z = self.recurrent_kernel[:, :, :, :self.filters]
-        self.kernel_f = self.kernel[:, :, :, self.filters: self.filters * 2]
-        self.recurrent_kernel_f = self.recurrent_kernel[:, :, :, self.filters: self.filters * 2]
+        self.kernel_f = self.kernel[:, :, :, :self.filters]
+        self.recurrent_kernel_f = self.recurrent_kernel[:, :, :, :self.filters]
+        #self.kernel_f = self.kernel[:, :, :, self.filters: self.filters * 2]
+        #self.recurrent_kernel_f = self.recurrent_kernel[:, :, :, self.filters: self.filters * 2]
 
 
         if self.use_bias:
-            self.bias_z = self.bias[:self.filters]
-            self.bias_f = self.bias[self.filters: self.filters * 2]
+            self.bias_f = self.bias[:self.filters]
+            #self.bias_f = self.bias[self.filters: self.filters * 2]
             #self.bias_h = self.bias[self.filters * 2:]
 
         else:
-            self.bias_z = None
-            self.bias_r = None
+            self.bias_f = None
+            #self.bias_r = None
             #self.bias_h = None
         self.built = True
 
@@ -1227,10 +1227,10 @@ class ConvSTAR2D(ConvRecurrent2D):
 
             dp_mask = [K.in_train_phase(dropped_inputs,
                                         ones,
-                                        training=training) for _ in range(3)]
+                                        training=training) for _ in range(1)]
             constants.append(dp_mask)
         else:
-            constants.append([K.cast_to_floatx(1.) for _ in range(3)])
+            constants.append([K.cast_to_floatx(1.) for _ in range(1)])
 
         if 0 < self.recurrent_dropout < 1:
             shape = list(self.kernel_shape)
@@ -1245,10 +1245,10 @@ class ConvSTAR2D(ConvRecurrent2D):
                 return K.dropout(ones, self.recurrent_dropout)
             rec_dp_mask = [K.in_train_phase(dropped_inputs,
                                             ones,
-                                            training=training) for _ in range(3)]
+                                            training=training) for _ in range(1)]
             constants.append(rec_dp_mask)
         else:
-            constants.append([K.cast_to_floatx(1.) for _ in range(3)])
+            constants.append([K.cast_to_floatx(1.) for _ in range(1)])
         return constants
 
     def input_conv(self, x, w, b=None, padding='valid'):
@@ -1273,14 +1273,14 @@ class ConvSTAR2D(ConvRecurrent2D):
         dp_mask = states[1]
         rec_dp_mask = states[2]
 
-        x_z = self.input_conv(inputs * dp_mask[0], self.kernel_z, self.bias_z,
-                              padding=self.padding)
-        x_f = self.input_conv(inputs * dp_mask[1], self.kernel_f, self.bias_f,
+        #x_z = self.input_conv(inputs * dp_mask[0], self.kernel_z, self.bias_z,
+                              #padding=self.padding)
+        x_f = self.input_conv(inputs * dp_mask[0], self.kernel_f, self.bias_f,
                               padding=self.padding)
         
-        h_f = self.recurrent_conv(h_tm1 * rec_dp_mask[1],
+        h_f = self.recurrent_conv(h_tm1 * rec_dp_mask[0],
                                   self.recurrent_kernel_f)
-        z = self.activation(x_z)
+        z = self.activation(x_f)
         f = self.recurrent_activation(x_f + h_f)
 
         h = (1.0 - f) * h_tm1 + f * z
