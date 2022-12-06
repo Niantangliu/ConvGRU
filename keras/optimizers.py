@@ -417,7 +417,7 @@ class Adam(Optimizer):
 
         lr = self.lr
         if self.initial_decay > 0:
-            lr *= (1. / (1. + self.decay * K.cast(self.iterations,
+            lr.assign(1. / (1. + self.decay * K.cast(self.iterations,
                                                   K.dtype(self.decay))))
 
         t = K.cast(self.iterations, K.floatx()) + 1
